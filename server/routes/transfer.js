@@ -185,18 +185,6 @@ function buildGeneralFareSource(faresDb, timeZoneId, cardTypeId, generalTransfer
   };
 }
 
-/**
- * Validatör aktarma ücreti hesaplama formülü (kullanıcı tarafından doğrulandı):
- *
- *   transferFare = max(0, secondLineFare - firstLineFare) + baseTransferFee
- *
- * Örnekler:
- *   35 → 69: max(0, 69-35) + 17.50 = 34 + 17.50 = 51.50 ₺
- *   69 → 35: max(0, 35-69) + 17.50 = 0  + 17.50 = 17.50 ₺
- *   35 → 35: max(0, 35-35) + 17.50 = 0  + 17.50 = 17.50 ₺
- *
- * percent=0 ise aktarma yasaktır — tam fiyat ödenir (null döndürülür).
- */
 function calcValidatorTransferFare(firstLineFare, secondLineFare, percent, baseTransferFee, discountType = null, cardTypeId = 1) {
   if (cardTypeId === 2) {
     if (percent === 0) return null; // Aktarma yasak
@@ -392,12 +380,6 @@ router.get('/scenario', (req, res) => {
     // ── Card parameters (subscr_transfer_type) ──
     const cardParams = faresDb.prepare('SELECT * FROM card_types_parameters WHERE card_type = ? LIMIT 1').get(cardTypeId);
     const subscrTransferType = cardParams?.subscr_transfer_type ?? 0;
-
-    // ── isTransferActive check: if either line has isTransferActive=0 for this card,
-    //    the subscription-based transfer is disabled on that line.
-    //    NOTE: This reflects a limitation in THIS DB — some transfer rules (e.g. metro-bus free
-    //    transfers for student cards) may be defined in a separate/newer tariff database or
-    //    at the KENT card firmware level and are NOT visible here. ──
     const fromTransferActive = fromSubscr ? fromSubscr.isTransferActive : null;
     const toTransferActive   = toSubscr   ? toSubscr.isTransferActive   : null;
     // If a subscr record exists and isTransferActive=0 for TO line → signal possible incomplete data
@@ -405,7 +387,6 @@ router.get('/scenario', (req, res) => {
       ? 'Bu hat için bu kart tipinin aktarma kuralı DB\'de devre dışı (isTransferActive=0). Gerçek validatör davranışı farklı olabilir.'
       : null;
 
-    // ── All card types comparison — only named cards ──
     const allCardTypes = faresDb.prepare('SELECT * FROM card_types ORDER BY card_type_id').all()
       .filter(ct => isNamedCard(ct.description));
     const cardTypeComparison = allCardTypes.map(ct => {
@@ -441,7 +422,7 @@ router.get('/scenario', (req, res) => {
         ctInterval = rule.interval;
         if (ctTransferFare === null) ctTransferFare = ctToFare ?? 0;
       } else {
-        // Genel aktarma formülü
+
         ctTransferFare = calcValidatorTransferFare(ctFromFare ?? 0, ctToFare ?? 0, 1, ctGeneralFare, null, ct.card_type_id);
         const diff = Math.max(0, (ctToFare ?? 0) - (ctFromFare ?? 0));
         ctTransferNote = ctGeneralFare !== null
@@ -463,7 +444,7 @@ router.get('/scenario', (req, res) => {
       };
     });
 
-    // ── Primary result (selected card type) ──
+
     let primaryTransferFare;
     let primaryTransferFareSource = null;
     let primaryInterval;
@@ -507,7 +488,7 @@ router.get('/scenario', (req, res) => {
       }
       
       if (cardTypeId === 2) {
-        formulaType = 'free'; // Student is always free
+        formulaType = 'free'; // 
       }
       
       primaryTransferFare  = calcValidatorTransferFare(fromFare ?? 0, toFare ?? 0, primaryRule.percent, primaryBaseFee, primaryRule.discount_type, cardTypeId);
@@ -519,10 +500,10 @@ router.get('/scenario', (req, res) => {
           : `Validatör formülü: max(0, ${((toFare??0)/100).toFixed(2)}₺ - ${((fromFare??0)/100).toFixed(2)}₺) + ${((primaryBaseFee??0)/100).toFixed(2)}₺ (base) = ${(primaryFareDiff/100).toFixed(2)}₺ + ${((primaryBaseFee??0)/100).toFixed(2)}₺ = ${(primaryTransferFare/100).toFixed(2)}₺ | DB: percent=${primaryRule.percent} → transfer_discounts.percent=${primaryBaseFareId}`;
       } else {
         primaryTransferNote = `Aktarma yasak (percent=0). DB: transfers_according_to_previous_line·previous_line_id=${fromLine.zone_id}·line_id=${toLine.zone_id}·percent=0`;
-        primaryTransferFare = toFare ?? 0; // yasak = tam ücret
+        primaryTransferFare = toFare ?? 0; 
       }
     } else {
-      // Özel kural yok → genel aktarma formülü
+
       primaryBaseFee            = generalTransferFare ?? 0;
       primaryBaseFareId         = generalTransferFareId;
       formulaType               = cardTypeId === 2 ? 'free' : 'standard';
